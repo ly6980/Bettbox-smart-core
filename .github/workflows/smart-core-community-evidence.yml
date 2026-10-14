@@ -1,0 +1,224 @@
+name: Smart Core Community Evidence Sweep
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [mihomo-smart]
+    paths:
+      - '.github/workflows/smart-core-community-evidence.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smart-core-community-evidence-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  collect-public-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Collect public technical-community evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json, os, time, urllib.parse, urllib.request, datetime
+          from pathlib import Path
+
+          token = os.environ.get("GH_TOKEN", "")
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "Bettbox-Smart-Core-Evidence-Sweep",
+          }
+          if token:
+              headers["Authorization"] = "Bearer " + token
+
+          repos = [
+              "vernesong/mihomo",
+              "appshubcc/Bettbox",
+              "chen08209/FlClash",
+              "clash-verge-rev/clash-verge-rev",
+              "mihomo-party-org/clash-party",
+              "oviron/libmihomo-android",
+              "KevinChen222/Bettbox",
+          ]
+          queries = [
+              '("JNI" OR "c-shared" OR gomobile) (mihomo OR clash) ',
+              '("API drift" OR "undefined" OR "breaking change") mihomo',
+              '("TUN" OR VPN) (Android OR arm64) (mihomo OR clash)',
+              '("fallback" OR "crash" OR "lifecycle") (mihomo OR clash) ',
+              'repo:vernesong/mihomo "Android"',
+              'repo:appshubcc/Bettbox "smart core"',
+          ]
+          records, failures = [], []
+
+          def get_json(url):
+              req = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(req, timeout=18) as r:
+                  return json.loads(r.read().decode("utf-8", "replace"))
+
+          # Search issues and pull requests across the public GitHub ecosystem.
+          for q in queries:
+              try:
+                  url = "https://api.github.com/search/issues?" + urllib.parse.urlencode({
+                      "q": q + " is:public",
+                      "sort": "updated",
+                      "order": "desc",
+                      "per_page": 12,
+                  })
+                  data = get_json(url)
+                  for item in data.get("items", []):
+                      records.append({
+                          "kind": "GitHub issue/PR search",
+                          "title": item.get("title", ""),
+                          "url": item.get("html_url", ""),
+                          "repo": item.get("repository_url", "").replace("https://api.github.com/repos/", ""),
+                          "updated": item.get("updated_at", ""),
+                          "state": item.get("state", ""),
+                          "comments": item.get("comments", 0),
+                          "excerpt": (item.get("body") or "").replace("\r", "").replace("\n", " ")[:650],
+                          "confidence": "lead; verify against code/logs before treating as fact",
+                          "query": q.strip(),
+                      })
+                  time.sleep(1.1)
+              except Exception as e:
+                  failures.append({"source": q, "error": str(e)[:250]})
+
+          # Capture release and issue activity for the core projects.
+          for repo in repos:
+              for endpoint, kind in [("releases?per_page=5", "release"), ("issues?state=all&per_page=8&sort=updated", "recent issue/activity")]:
+                  try:
+                      data = get_json("https://api.github.com/repos/" + repo + "/" + endpoint)
+                      if isinstance(data, list):
+                          for item in data:
+                              if "pull_request" in item and kind == "recent issue/activity":
+                                  continue
+                              records.append({
+                                  "kind": kind,
+                                  "title": item.get("name") or item.get("title") or item.get("tag_name", ""),
+                                  "url": item.get("html_url", ""),
+                                  "repo": repo,
+                                  "updated": item.get("published_at") or item.get("updated_at") or item.get("created_at", ""),
+                                  "state": item.get("state", ""),
+                                  "excerpt": (item.get("body") or "").replace("\r", "").replace("\n", " ")[:500],
+                                  "confidence": "primary repository record",
+                              })
+                      time.sleep(0.35)
+                  except Exception as e:
+                      failures.append({"source": repo + "/" + endpoint, "error": str(e)[:250]})
+
+          # Community sources are opportunistic: keep failures visible, never silently infer results.
+          community_sources = [
+              ("Linux.do search", "https://linux.do/search.json?q=" + urllib.parse.quote("mihomo Android JNI")),
+              ("Reddit search", "https://www.reddit.com/search.json?q=" + urllib.parse.quote("mihomo Android JNI") + "&sort=new&limit=10"),
+          ]
+          for label, url in community_sources:
+              try:
+                  community_headers = dict(headers)
+                  community_headers["User-Agent"] = "BettboxSmartCoreResearch/1.0 (public technical research)"
+                  req = urllib.request.Request(url, headers=community_headers)
+                  with urllib.request.urlopen(req, timeout=12) as r:
+                      raw = json.loads(r.read().decode("utf-8", "replace"))
+                  if label.startswith("Linux.do"):
+                      topics = raw.get("topics", {}).get("topic_list", {}).get("topics", [])
+                      for item in topics:
+                          slug = item.get("slug", "")
+                          tid = item.get("id", "")
+                          records.append({
+                              "kind": label,
+                              "title": item.get("title", ""),
+                              "url": "https://linux.do/t/" + str(slug) + "/" + str(tid),
+                              "repo": "community",
+                              "updated": item.get("last_posted_at", ""),
+                              "excerpt": "Community discussion; inspect the thread and validate claims independently.",
+                              "confidence": "anecdotal lead; not proof",
+                          })
+                  else:
+                      children = raw.get("data", {}).get("children", [])
+                      for child in children:
+                          item = child.get("data", {})
+                          records.append({
+                              "kind": label,
+                              "title": item.get("title", ""),
+                              "url": "https://www.reddit.com" + item.get("permalink", ""),
+                              "repo": item.get("subreddit", "reddit"),
+                              "updated": datetime.datetime.fromtimestamp(item.get("created_utc", 0), datetime.timezone.utc).isoformat() if item.get("created_utc") else "",
+                              "excerpt": (item.get("selftext") or "").replace("\r", "").replace("\n", " ")[:500],
+                              "confidence": "anecdotal lead; not proof",
+                          })
+              except Exception as e:
+                  failures.append({"source": label, "error": str(e)[:250]})
+
+          # De-duplicate by canonical URL and sort newest first.
+          seen, unique = set(), []
+          for item in records:
+              url = item.get("url", "")
+              if url and url not in seen:
+                  seen.add(url)
+                  unique.append(item)
+          unique.sort(key=lambda x: x.get("updated", ""), reverse=True)
+
+          out = Path("community-evidence")
+          out.mkdir(exist_ok=True)
+          payload = {
+              "generated_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              "scope": repos,
+              "record_count": len(unique),
+              "records": unique,
+              "collection_failures": failures,
+              "limitations": [
+                  "Search results are leads, not validated technical conclusions.",
+                  "Community endpoints may rate-limit or change; failures are recorded explicitly.",
+                  "No code is copied or changed by this workflow.",
+                  "Review licenses and reproduce claims before implementation.",
+              ],
+          }
+          (out / "evidence.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+          lines = [
+              "# Smart Core public technical evidence sweep",
+              "",
+              f"- Generated (UTC): {payload['generated_at_utc']}",
+              f"- Unique records: {len(unique)}",
+              f"- Collection failures: {len(failures)}",
+              "",
+              "> Treat this report as a research queue. Community posts are anecdotal until verified against source, version, logs, or reproduction.",
+              "",
+              "## Evidence leads",
+              "",
+              "| Date | Type / repository | Title | Confidence |",
+              "|---|---|---|---|",
+          ]
+          for item in unique[:250]:
+              title = (item.get("title") or "(untitled)").replace("|", "\\|").replace("\n", " ")
+              repo = (item.get("repo") or "").replace("|", "\\|")
+              lines.append(f"| {item.get('updated','')[:10]} | {item.get('kind','')} / {repo} | [{title}]({item.get('url','')}) | {item.get('confidence','')} |")
+          lines += ["", "## Collection failures", ""]
+          if failures:
+              for f in failures:
+                  lines.append(f"- **{f['source']}**: {f['error']}")
+          else:
+              lines.append("- None.")
+          lines += [
+              "",
+              "## Review checklist",
+              "- [ ] Confirm relevant version/commit and target platform/ABI.",
+              "- [ ] Verify claims against source code, CI logs, maintainer statements, or a reproducible test.",
+              "- [ ] Separate confirmed facts from hypotheses and anecdotes.",
+              "- [ ] Turn actionable findings into focused regression tests.",
+              "- [ ] Check license and upstream compatibility before reusing code.",
+              "",
+          ]
+          (out / "README.md").write_text("\n".join(lines), encoding="utf-8")
+          print(f"Wrote {len(unique)} evidence records and {len(failures)} collection failures.")
+          PY
+      - name: Upload evidence report
+        uses: actions/upload-artifact@v4
+        with:
+          name: smart-core-community-evidence
+          path: community-evidence/
+          if-no-files-found: error
+          retention-days: 30
