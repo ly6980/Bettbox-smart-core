@@ -23,6 +23,7 @@ Branch: mihomo-smart
 
 Workflow: https://github.com/ly6980/Bettbox-smart-core/actions/runs/38573488262
 Commit: `f3e8c02c8dcd1fad1d0944a73e70f305f273dc96`
+
 NDK installation and fetching the correct Smart source both succeeded. The Android ARM64 Go compile failed before linking.
 
 Compiler errors include:
@@ -33,16 +34,29 @@ Compiler errors include:
 - `updater.UpdateMMDBWithPath` and `UpdateASNWithPath` missing.
 - A `constant.DefaultTestURL` reference/assignment incompatibility in `core/common.go`.
 
-This is not an NDK or architecture failure. It confirms Bettbox's wrapper calls APIs that are absent or changed in the current Smart source revision. The earlier assumption that the wrapper might compile unchanged was too optimistic.
+This is not an NDK or architecture failure. It confirms Bettbox's wrapper calls APIs that are absent or changed in the current Smart source revision.
 
-## Next step: classify API drift before editing
+## Comparison with KevinChen222/Bettbox
 
-Do not replace the whole Bettbox wrapper and do not change the default core. Compare each failing call site with the Smart source APIs and classify each as:
-1. A small wrapper-side adaptation.
-2. A feature that needs equivalent functionality in the Smart source.
-3. A behavioral mismatch requiring a larger port.
+Repository branch: https://github.com/KevinChen222/Bettbox/tree/feat/smart-core
 
-Determine whether each call is Bettbox-specific integration or ordinary Mihomo API drift. Keep experiments isolated on `mihomo-smart`. Apply only a minimal, reviewed compatibility patch, then rerun the same ARM64 C-shared build.
+- Its latest observed workflow run, [Build Smart #32](https://github.com/KevinChen222/Bettbox/actions/runs/38515250989), completed successfully on 2026-10-14 at commit `b757c1e8644b01bd1a91bd17bd48b2021cf49afd`.
+- Its workflow builds Windows and Android (as well as Linux); its Android job prepares the Smart kernel, runs Go bridge and Smart-kernel tests, then builds the Android core and APK.
+- It pins Smart source revision `83e67d0c4415b1114f9e01d8e9a00133caf89f6c` and uses `tool/prepare_smart_core.dart` to copy Bettbox's existing `core/Clash.Meta` into a disposable `core/.smart-mihomo` tree, then apply `core/smart.patch` with a three-way merge.
+- This differs materially from our first attempt, which replaced `core/Clash.Meta` with the Smart source tree and then tried to compile Bettbox's wrapper unchanged. Kevin's successful build therefore validates his pinned source + overlay patch + wrapper combination, not a raw source replacement.
+- His patch adds Bettbox-specific compatibility and integration code (for example, the missing `GetSubscriptionInfo()` accessor). The rest of the API differences must be evaluated in the context of the exact base and patch; copying isolated method names is unsafe.
+
+## Revised implementation plan
+
+The next experiment should follow the **overlay model**, not direct replacement:
+
+1. Keep `core/Clash.Meta` as Bettbox's original kernel/base.
+2. Generate a disposable Smart kernel directory and apply a pinned, reviewable Smart patch there.
+3. Build the Bettbox Go bridge against that generated tree; do not add no-op compatibility stubs to force compilation.
+4. Run Android ARM64 C-shared build and Windows x64 build before adding any UI selector.
+5. Keep the original kernel as the default and keep all changes on `mihomo-smart`; `main` remains untouched.
+
+The Kevin branch's patch is large and tied to a particular base. Before porting it, compare its pinned Bettbox baseline with our branch and check which Smart patch hunks apply cleanly. Do not copy the entire patch blindly.
 
 ## Constraints
 
