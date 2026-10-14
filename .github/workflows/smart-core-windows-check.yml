@@ -1,0 +1,124 @@
+name: Smart Core Windows Build Check
+
+on:
+  push:
+    branches:
+      - mihomo-smart
+    paths:
+      - '.github/workflows/smart-core-windows-check.yml'
+      - '.github/workflows/build.yaml'
+      - 'core/**'
+      - 'lib/**'
+      - 'services/helper/**'
+      - 'setup.dart'
+      - 'windows/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: mihomo-smart
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache-dependency-path: core/go.sum
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.7'
+          cache: true
+          cache-key: smart-core-windows-${{ hashFiles('**/pubspec.lock') }}
+
+      - name: Resolve Dart dependencies and generated code
+        shell: bash
+        run: |
+          flutter pub get
+          dart run build_runner build
+
+      - name: Build default Bettbox core
+        shell: bash
+        run: dart setup.dart windows --arch amd64 --out core-only
+
+      - name: Download and verify Smart Core
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/vernesong/mihomo/releases/tags/Prerelease-Alpha' -Headers @{ 'Accept' = 'application/vnd.github+json'; 'User-Agent' = 'Bettbox-Smart-Core-Build-Check' }
+          $pattern = 'mihomo-windows-amd64-v3-alpha-smart-*.zip'
+          $assets = @($release.assets | Where-Object { $_.name -like $pattern })
+          if ($assets.Count -ne 1) { throw "Expected exactly one Smart Core asset matching $pattern; found $($assets.Count)" }
+          $checksums = @($release.assets | Where-Object { $_.name -eq 'checksums.txt' })
+          if ($checksums.Count -ne 1) { throw 'checksums.txt is missing; refusing to use an unverified Smart Core binary.' }
+
+          $work = Join-Path $env:RUNNER_TEMP 'smart-core-check'
+          New-Item -ItemType Directory -Path $work -Force | Out-Null
+          $zip = Join-Path $work $assets[0].name
+          $checksumFile = Join-Path $work 'checksums.txt'
+          Invoke-WebRequest -Uri $assets[0].browser_download_url -OutFile $zip
+          Invoke-WebRequest -Uri $checksums[0].browser_download_url -OutFile $checksumFile
+
+          $line = Get-Content $checksumFile | Where-Object { $_.Contains($assets[0].name) } | Select-Object -First 1
+          if (-not $line -or $line.Length -lt 64) { throw "No SHA-256 checksum found for $($assets[0].name)" }
+          $expected = $line.Substring(0, 64).ToLower()
+          if ($expected -notmatch '^[a-f0-9]{64}$') { throw "Malformed SHA-256 checksum for $($assets[0].name)" }
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $expected) { throw "Smart Core ZIP checksum mismatch. Expected $expected; got $actual" }
+
+          $extract = Join-Path $work 'extract'
+          Expand-Archive -Path $zip -DestinationPath $extract -Force
+          $exe = Get-ChildItem -Path $extract -Filter '*.exe' -File -Recurse | Where-Object { $_.Name -like 'mihomo*.exe' } | Select-Object -First 1
+          if (-not $exe) { throw "No mihomo executable found in $($assets[0].name)" }
+          Copy-Item $exe.FullName 'libclash/windows/mihomo-smart.exe' -Force
+          $smartHash = (Get-FileHash 'libclash/windows/mihomo-smart.exe' -Algorithm SHA256).Hash.ToLower()
+          "SMART_CORE_SHA256=$smartHash" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Verified $($assets[0].name) (SHA-256 $smartHash)"
+
+      - name: Build helper with both allowed core hashes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $coreHash = (Get-FileHash 'libclash/windows/BettboxCore.exe' -Algorithm SHA256).Hash.ToLower()
+          if (-not $env:SMART_CORE_SHA256) { throw 'Verified Smart Core hash was not exported.' }
+          dart setup.dart windows --arch amd64 --out helper --core-hash $coreHash --allowed-core-hashes $env:SMART_CORE_SHA256
+
+      - name: Build Windows application
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $coreHash = (Get-FileHash 'libclash/windows/BettboxCore.exe' -Algorithm SHA256).Hash.ToLower()
+          flutter build windows --release --verbose --dart-define=CORE_SHA256=$coreHash --dart-define=APP_ENV=pre
+
+      - name: Verify build outputs and packaged sidecar
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $releaseDir = 'build/windows/x64/runner/Release'
+          foreach ($file in @('Bettbox.exe', 'BettboxCore.exe', 'BettboxHelperService.exe', 'mihomo-smart.exe')) {
+            $path = Join-Path $releaseDir $file
+            if (-not (Test-Path $path -PathType Leaf)) { throw "Expected build output is missing: $path" }
+            Write-Host "$file : $((Get-FileHash $path -Algorithm SHA256).Hash.ToLower())"
+          }
