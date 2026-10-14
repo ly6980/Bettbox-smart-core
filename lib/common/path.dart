@@ -84,6 +84,34 @@ class AppPath {
     );
   }
 
+  bool useSmartCore = false;
+
+  String get smartCorePath {
+    final devWorkspacePath = _devWorkspacePath;
+    if (devWorkspacePath != null) {
+      final path = join(devWorkspacePath, 'libclash', 'windows', 'mihomo-smart.exe');
+      if (File(path).existsSync()) return path;
+    }
+    return join(executableDirPath, 'mihomo-smart.exe');
+  }
+
+  bool get smartCoreAvailable => system.isWindows && File(smartCorePath).existsSync();
+
+  String get coreExecutableName =>
+      useSmartCore && smartCoreAvailable ? 'mihomo-smart' : AppIdentity.coreExecutableName;
+
+  Future<void> loadCorePreference() async {
+    final prefs = await preferences.sharedPreferencesCompleter.future;
+    useSmartCore = system.isWindows &&
+        prefs?.getBool('useSmartCore') == true &&
+        smartCoreAvailable;
+    if (system.isWindows &&
+        prefs?.getBool('useSmartCore') == true &&
+        !smartCoreAvailable) {
+      await prefs?.setBool('useSmartCore', false);
+    }
+  }
+
   String get bundledCorePath {
     final devWorkspacePath = _devWorkspacePath;
     if (devWorkspacePath != null) {
@@ -111,6 +139,12 @@ class AppPath {
         'core',
         '${AppIdentity.coreExecutableName}$executableExtension',
       );
+    }
+    if (useSmartCore) {
+      if (!smartCoreAvailable) {
+        throw StateError('Smart Core is selected but mihomo-smart.exe is missing.');
+      }
+      return smartCorePath;
     }
     return bundledCorePath;
   }
