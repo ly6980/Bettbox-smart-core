@@ -215,9 +215,20 @@ class ClashService extends ClashHandlerInterface {
           }
           return;
         }
+        if (appPath.useSmartCore) {
+          commonPrint.error('Smart Core was rejected by the helper service; direct fallback is disabled.');
+          globalState.showNotifier('Smart Core could not start through the helper service. Direct fallback is disabled.');
+          isStarting = false;
+          return;
+        }
         commonPrint.warn(
           'Helper start core failed, falling back to normal mode',
         );
+      } else if (appPath.useSmartCore) {
+        commonPrint.error('Smart Core requires the Windows helper service, but it is unavailable.');
+        globalState.showNotifier('Smart Core requires the Windows helper service. Enable the helper service and try again.');
+        isStarting = false;
+        return;
       }
     }
 
