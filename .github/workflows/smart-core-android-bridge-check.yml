@@ -1,0 +1,89 @@
+name: Smart Core Android Bridge Compatibility
+
+on:
+  push:
+    branches:
+      - mihomo-smart
+    paths:
+      - '.github/workflows/smart-core-android-bridge-check.yml'
+      - 'core/**'
+      - 'android/core/**'
+      - 'setup.dart'
+  pull_request:
+    branches:
+      - mihomo-smart
+    paths:
+      - '.github/workflows/smart-core-android-bridge-check.yml'
+      - 'core/**'
+      - 'android/core/**'
+      - 'setup.dart'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-arm64-c-shared:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout Bettbox wrapper
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache: false
+
+      - name: Setup Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          NDK_VERSION="28.2.13676358"
+          set +o pipefail
+          yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --install "ndk;${NDK_VERSION}" >/dev/null
+          set -o pipefail
+          test -d "${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}"
+          echo "ANDROID_NDK=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Fetch exact Smart Core source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch Prerelease-Alpha https://github.com/vernesong/mihomo.git /tmp/mihomo-smart
+          test -f /tmp/mihomo-smart/go.mod
+          grep -q '^module github.com/metacubex/mihomo$' /tmp/mihomo-smart/go.mod
+          grep -q 'type Smart struct' /tmp/mihomo-smart/adapter/outboundgroup/smart.go
+
+      - name: Compile Bettbox bridge against Smart Core for Android ARM64
+        shell: bash
+        working-directory: core
+        run: |
+          set -euo pipefail
+          export GOOS=android
+          export GOARCH=arm64
+          export CGO_ENABLED=1
+          export CC="${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang"
+          export CFLAGS="-O3 -Werror"
+          go mod edit -replace=github.com/metacubex/mihomo=/tmp/mihomo-smart
+          go mod tidy
+          go build -trimpath -ldflags="-w -s -extldflags=-Wl,-z,max-page-size=16384" -tags=with_gvisor -buildmode=c-shared -o /tmp/libmeta-smart.so .
+
+      - name: Verify generated library and Bettbox JNI exports
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/libmeta-smart.so
+          test -s /tmp/libmeta-smart.h
+          file /tmp/libmeta-smart.so
+          readelf -h /tmp/libmeta-smart.so | grep -E 'Machine:.*AArch64'
+          for symbol in initNativeApiBridge attachMessagePort invokeAction getTraffic getTotalTraffic freeCString getConfig startListener stopListener suspend startTUN stopTun registerCallbacks; do
+            if ! readelf -Ws /tmp/libmeta-smart.so | grep -q "[[:space:]]${symbol}$"; then
+              echo "Missing required Bettbox bridge symbol: ${symbol}"
+              exit 1
+            fi
+          done
+          echo "Smart Core C-shared bridge build and required symbol checks passed."
