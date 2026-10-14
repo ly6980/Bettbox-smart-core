@@ -1,0 +1,58 @@
+name: Smart Core Dart Regression Tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - mihomo-smart
+    paths:
+      - '.github/workflows/smart-core-dart-regression.yml'
+      - 'lib/**'
+      - 'test/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - 'analysis_options.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  dart-regression:
+    name: Flutter unit and widget regression suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout experimental branch
+        uses: actions/checkout@v6
+        with:
+          ref: mihomo-smart
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.7'
+          cache: true
+          cache-key: smart-core-dart-${{ hashFiles('**/pubspec.lock') }}
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Generate source files
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Run repository Flutter tests
+        run: flutter test --reporter expanded
+
+      - name: Report branch and commit
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "Branch: $GITHUB_REF_NAME"
+            echo "Commit: $GITHUB_SHA"
+            echo "Test command: flutter test --reporter expanded"
+            echo "This validates automated Dart tests only; it does not prove Windows process fallback or Android VPN/TUN runtime behavior."
+          } >> "$GITHUB_STEP_SUMMARY"
