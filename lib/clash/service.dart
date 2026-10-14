@@ -150,6 +150,7 @@ class ClashService extends ClashHandlerInterface {
   }
 
   Future<void> _doRestart() async {
+    await appPath.loadCorePreference();
     isStarting = true;
     _isDestroying = false;
 
