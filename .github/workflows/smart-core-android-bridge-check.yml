@@ -87,3 +87,5 @@ jobs:
             fi
           done
           echo "Smart Core C-shared bridge build and required symbol checks passed."
+
+# Branch-scoped validation refresh; no application source changed.
