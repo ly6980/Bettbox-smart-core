@@ -10,10 +10,10 @@ Clash Party's `smart_core` branch downloads prebuilt Smart binaries from the `Pr
 
 Release metadata and asset names were checked on 2026-10-14:
 - Release: https://github.com/vernesong/mihomo/releases/tag/Prerelease-Alpha
-- Windows x64 assets include `mihomo-windows-amd64-v3-alpha-smart-<commit>.zip` and `mihomo-windows-amd64-compatible-alpha-smart-<commit>.zip`; v1 variants also exist but are not selected by Bettbox's current compatible build.
+- Windows x64 assets include `mihomo-windows-amd64-v3-alpha-smart-<commit>.zip` and `mihomo-windows-amd64-v1-alpha-smart-<commit>.zip`.
 - Windows ARM64 assets use `mihomo-windows-arm64-alpha-smart-<commit>.zip`.
 - Assets are rolling prerelease builds; do not hardcode the current short commit suffix or guess a URL. The Windows build workflow resolves the current release metadata, selects the matching asset, and verifies the archive SHA-256 against `checksums.txt` before extracting it.
-- Bettbox's Windows x64 build selects the v3 asset by default and the `compatible` asset for its compatibility build; ARM64 uses the ARM64 asset.
+- Bettbox's Windows x64 build selects the v3 asset by default and the v1 asset for its compatibility build; ARM64 uses the ARM64 asset.
 
 Clash Party references:
 - https://github.com/mihomo-party-org/clash-party/blob/smart_core/scripts/prepare.mjs
