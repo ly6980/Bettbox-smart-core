@@ -90,3 +90,34 @@ The lowest-risk route to preserve current Android behavior is to investigate whe
 2. Check whether the fork can produce an Android ARM64 `c-shared` artifact while retaining the Smart-specific functionality.
 3. If feasible, build a separate proof-of-concept artifact and compare its exported symbols/API before wiring it into Bettbox.
 4. Keep the normal Android core selected by default and do not add a Smart Core toggle until the proof-of-concept passes build and device-level TUN/lifecycle checks.
+
+
+## Android ARM64 interface comparison (second pass, 2026-10-14)
+
+### New lead: an existing Android c-shared bridge
+
+Found a relevant public implementation: https://github.com/oviron/libmihomo-android . It builds Mihomo as `libclash.so` using Go `-buildmode=c-shared`, with a C/JNI facade and an action dispatcher. Its documented Android TUN API accepts a file descriptor and callbacks for socket protection/process resolution. This demonstrates that a standalone Mihomo executable is not the only possible Android packaging model.
+
+However, it is not a drop-in dependency for Bettbox:
+- It targets the MetaCubeX Mihomo source, not the `vernesong/mihomo` Smart fork currently used by this project.
+- Its bridge has its own JSON action vocabulary and Kotlin facade. Bettbox's generated `clash_ffi.dart`, `libmeta.so` symbols, IPC action methods, and JNI `libcore.so` are a separate contract.
+- Therefore, adopting the prebuilt AAR directly would not make Bettbox's existing calls compatible. It would require either porting Smart-specific changes onto a bridge-compatible source tree or implementing and validating an adapter/bridge.
+
+### Comparison result
+
+| Requirement | Bettbox Android today | Smart release artifact | Existing libmihomo-android approach |
+|---|---|---|---|
+| Core format | Go C shared library `libmeta.so` | Standalone AArch64 ELF executable | Go C shared library `libclash.so` |
+| Control interface | Generated Dart FFI + Bettbox IPC actions | CLI/config/controller API | Custom Go exports + JSON action dispatcher |
+| Android TUN | Existing JNI shim and callbacks | No compatible Bettbox JNI contract verified | Explicit TUN FD + callbacks in its own API |
+| Smart functionality | No Smart feature | Yes | Not confirmed; built against MetaCubeX source |
+
+### Updated recommendation
+
+The strongest next proof of concept is **not** to swap in the prebuilt Smart executable or adopt the third-party AAR unchanged. Instead:
+1. Compare the bridge/export implementation in Bettbox's pinned `core/Clash.Meta` with the Smart fork's source/build tags and Smart-specific changes.
+2. Determine whether the Smart fork can compile the same Bettbox C-shared bridge while preserving its Smart implementation.
+3. Build only `arm64-v8a`, inspect exported symbols and run a minimal FFI/init/config validation test.
+4. Only then wire the result to the Android TUN JNI path and test on an ARM64 device.
+
+No Android runtime code or UI switch has been changed by this research pass. Original core remains the default.
