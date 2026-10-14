@@ -19,24 +19,30 @@ Branch: mihomo-smart
 - Its published Android ARM64 asset is a standalone executable, not the Bettbox-specific `libmeta.so` C-shared interface.
 - Renaming the executable to `libmeta.so` cannot satisfy the required exported functions or the JNI TUN bridge.
 
-### Promising route: compile Bettbox's existing wrapper against Smart source
+### First compatibility build: failed due to API drift
 
-Both Bettbox's vendored Mihomo module and the Smart source use module path `github.com/metacubex/mihomo`. The wrapper imports that module via its existing local replacement. This suggests a relatively small compatibility experiment: keep Bettbox's wrapper/bridge files and compile them against the Smart source tree instead of the currently vendored `core/Clash.Meta`.
+Workflow: https://github.com/ly6980/Bettbox-smart-core/actions/runs/38573488262
+Commit: `f3e8c02c8dcd1fad1d0944a73e70f305f273dc96`
+NDK installation and fetching the correct Smart source both succeeded. The Android ARM64 Go compile failed before linking.
 
-This is a hypothesis, not yet a verified integration. Source-level compatibility still needs a real build because:
-- Bettbox calls many Mihomo APIs, including Android TUN and listener APIs.
-- The Smart branch may have API or dependency changes relative to Bettbox's vendored source.
-- cgo exports, generated header signatures, Android linker settings, and JNI lifecycle must remain compatible.
-- A successful shared-library build alone does not prove the VPN starts or that callbacks work at runtime.
+Compiler errors include:
+- `ProxySetProvider.GetSubscriptionInfo` missing.
+- `features.Android` missing.
+- `listener.StopListener` missing.
+- `statistic.DefaultManager.NowTraffic` and `TotalTraffic` missing.
+- `updater.UpdateMMDBWithPath` and `UpdateASNWithPath` missing.
+- A `constant.DefaultTestURL` reference/assignment incompatibility in `core/common.go`.
 
-## Next validation experiment
+This is not an NDK or architecture failure. It confirms Bettbox's wrapper calls APIs that are absent or changed in the current Smart source revision. The earlier assumption that the wrapper might compile unchanged was too optimistic.
 
-1. Add a separate CI job/workflow on `mihomo-smart` only; do not alter `main`.
-2. In a temporary workspace, fetch the exact `vernesong/mihomo` `Prerelease-Alpha` source and place it as the target of the wrapper module's Mihomo replacement. Keep Bettbox's wrapper files outside that source tree.
-3. Build Android ARM64 with Bettbox's existing `setup.dart android --arch arm64 --out core-only` path (or equivalent Go build invocation), with cgo/NDK enabled.
-4. Check generated `libmeta.so` exports against the functions consumed by `android/core/src/main/cpp/core.cpp`, and ensure Smart-specific packages are present.
-5. If compilation fails, classify errors as API drift, dependency/module drift, build-tag/CGO problems, or Android linker problems before changing integration code.
-6. Only after compile compatibility passes, add runtime tests for core initialization, config validation, TUN start/stop, socket protection, process resolution, and fallback to the unchanged default core.
+## Next step: classify API drift before editing
+
+Do not replace the whole Bettbox wrapper and do not change the default core. Compare each failing call site with the Smart source APIs and classify each as:
+1. A small wrapper-side adaptation.
+2. A feature that needs equivalent functionality in the Smart source.
+3. A behavioral mismatch requiring a larger port.
+
+Determine whether each call is Bettbox-specific integration or ordinary Mihomo API drift. Keep experiments isolated on `mihomo-smart`. Apply only a minimal, reviewed compatibility patch, then rerun the same ARM64 C-shared build.
 
 ## Constraints
 
