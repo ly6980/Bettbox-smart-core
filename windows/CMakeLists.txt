@@ -111,6 +111,13 @@ install(PROGRAMS "${CLASH_DIR}/BettboxHelperService.exe" DESTINATION "${INSTALL_
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
 
+# Smart Core is optional for local/debug builds; release CI provides this sidecar.
+if(EXISTS "${CLASH_DIR}/mihomo-smart.exe")
+  install(PROGRAMS "${CLASH_DIR}/mihomo-smart.exe" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    CONFIGURATIONS Profile;Release
+    COMPONENT Runtime)
+endif()
+
 install(FILES "WindowsLoopbackManager.exe" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
