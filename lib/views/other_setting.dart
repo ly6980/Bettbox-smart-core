@@ -841,6 +841,40 @@ class _TrayClickBehaviorDialogState extends State<_TrayClickBehaviorDialog> {
   }
 }
 
+class SmartCoreItem extends StatefulWidget {
+  const SmartCoreItem({super.key});
+
+  @override
+  State<SmartCoreItem> createState() => _SmartCoreItemState();
+}
+
+class _SmartCoreItemState extends State<SmartCoreItem> {
+  bool _enabled = appPath.useSmartCore;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!system.isWindows || !appPath.smartCoreAvailable) {
+      return const SizedBox.shrink();
+    }
+
+    return ListItem.switchItem(
+      title: const Text('Smart Core'),
+      subtitle: const Text(
+        'Use the Smart-enabled Mihomo core. Restart the core to apply.',
+      ),
+      delegate: SwitchDelegate(
+        value: _enabled,
+        onChanged: (bool value) async {
+          final prefs = await preferences.sharedPreferencesCompleter.future;
+          await prefs?.setBool('useSmartCore', value);
+          appPath.useSmartCore = value;
+          if (mounted) setState(() => _enabled = value);
+        },
+      ),
+    );
+  }
+}
+
 class OtherSettingView extends StatefulWidget {
   const OtherSettingView({super.key});
 
@@ -915,6 +949,7 @@ class _OtherSettingViewState extends State<OtherSettingView>
       if (system.isAndroid) const NetworkSpeedNotificationItem(),
       if (!system.isAndroid) const TraySection(),
       if (system.isWindows) const HighPriorityItem(),
+      if (system.isWindows && appPath.smartCoreAvailable) const SmartCoreItem(),
       if (system.isWindows) const NetworkFixItem(),
       if (system.isDesktop) const CloseConnectionsItem(),
       if (_showBatteryOptimization)
