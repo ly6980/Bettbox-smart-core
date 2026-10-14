@@ -191,17 +191,27 @@ class ClashService extends ClashHandlerInterface {
       final serviceOk = AppIdentity.isDev
           ? (await windows?.isHelperHealthy() ?? false)
           : (await windows?.registerService() ?? false);
-      if (serviceOk) {
+
+      Future<bool> startWithHelper(String corePath) async {
         final started = await helperClient.startCore(
-          corePath: appPath.corePath,
+          corePath: corePath,
           arg: arg,
           homeDir: homeDirPath,
         );
-        if (started) {
-          await _waitForCoreReady();
+        if (!started) return false;
+
+        final ready = await _waitForCoreReady();
+        if (!ready) {
+          await helperClient.stopCore().catchError((_) => false);
+        }
+        return ready;
+      }
+
+      if (serviceOk) {
+        var ready = await startWithHelper(appPath.corePath);
+        if (ready) {
           isStarting = false;
-          if (system.isWindows &&
-              globalState.config.appSetting.enableHighPriority) {
+          if (globalState.config.appSetting.enableHighPriority) {
             unawaited(
               helperClient
                   .setProcessPriority(
@@ -209,35 +219,61 @@ class ClashService extends ClashHandlerInterface {
                     true,
                   )
                   .catchError((e) {
-                    commonPrint.warn('Failed to set core process priority: $e');
+                    commonPrint.warn('Failed to set process priority: $e');
                     return false;
                   }),
             );
           }
           return;
         }
+
         if (appPath.useSmartCore) {
-          commonPrint.error(
-            'Smart Core was rejected by the helper service; direct fallback is disabled.',
+          commonPrint.warn(
+            'Smart Core failed to start through the helper service; falling back to the original core.',
           );
+          await helperClient.stopCore().catchError((_) => false);
+          await appPath.disableSmartCorePreference();
           globalState.showNotifier(
-            'Smart Core could not start through the helper service. Direct fallback is disabled.',
+            'Smart Core failed to start. Bettbox is switching back to the original core.',
           );
-          isStarting = false;
-          return;
+          socketCompleter = Completer();
+
+          ready = await startWithHelper(appPath.corePath);
+          if (ready) {
+            isStarting = false;
+            if (globalState.config.appSetting.enableHighPriority) {
+              unawaited(
+                helperClient
+                    .setProcessPriority(
+                      '${appPath.coreExecutableName}.exe',
+                    true,
+                  )
+                  .catchError((e) {
+                    commonPrint.warn('Failed to set process priority: $e');
+                    return false;
+                  }),
+              );
+            }
+            return;
+          }
+          commonPrint.warn(
+            'Original core did not start through the helper service; trying direct startup.',
+          );
+          await helperClient.stopCore().catchError((_) => false);
+          socketCompleter = Completer();
+        } else {
+          commonPrint.warn(
+            'Helper start core failed, falling back to direct startup.',
+          );
         }
-        commonPrint.warn(
-          'Helper start core failed, falling back to normal mode',
-        );
       } else if (appPath.useSmartCore) {
-        commonPrint.error(
-          'Smart Core requires the Windows helper service, but it is unavailable.',
+        commonPrint.warn(
+          'Windows helper service is unavailable for Smart Core; selecting the original core.',
         );
+        await appPath.disableSmartCorePreference();
         globalState.showNotifier(
-          'Smart Core requires the Windows helper service. Enable the helper service and try again.',
+          'Smart Core could not use the Windows helper service. Bettbox is switching back to the original core.',
         );
-        isStarting = false;
-        return;
       }
     }
 
@@ -252,6 +288,24 @@ class ClashService extends ClashHandlerInterface {
     }
 
     var connected = await _startCoreDirectly(arg, environment);
+    if (!connected && appPath.useSmartCore) {
+      commonPrint.warn(
+        'Smart Core did not become ready; retrying with the original core.',
+      );
+      process?.kill();
+      process = null;
+      await appPath.disableSmartCorePreference();
+      globalState.showNotifier(
+        'Smart Core failed to start. Bettbox is switching back to the original core.',
+      );
+      socketCompleter = Completer();
+      await _rebindTransport();
+      final fallbackArg = _transportType == TransportType.unixSocket
+          ? _socketPath!
+          : '${(await serverCompleter.future).port}';
+      connected = await _startCoreDirectly(fallbackArg, environment);
+    }
+
     if (!connected) {
       commonPrint.warn('core did not connect, retrying with a fresh transport');
       process?.kill();
