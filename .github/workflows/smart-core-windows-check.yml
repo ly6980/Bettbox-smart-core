@@ -1,4 +1,5 @@
 name: Smart Core Windows Build Check
+# Branch-push and manual validation entry point; scoped to mihomo-smart.
 
 on:
   push:
