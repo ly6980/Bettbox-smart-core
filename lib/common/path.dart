@@ -89,16 +89,24 @@ class AppPath {
   String get smartCorePath {
     final devWorkspacePath = _devWorkspacePath;
     if (devWorkspacePath != null) {
-      final path = join(devWorkspacePath, 'libclash', 'windows', 'mihomo-smart.exe');
+      final path = join(
+        devWorkspacePath,
+        'libclash',
+        'windows',
+        'mihomo-smart.exe',
+      );
       if (File(path).existsSync()) return path;
     }
     return join(executableDirPath, 'mihomo-smart.exe');
   }
 
-  bool get smartCoreAvailable => system.isWindows && File(smartCorePath).existsSync();
+  bool get smartCoreAvailable =>
+      system.isWindows && File(smartCorePath).existsSync();
 
   String get coreExecutableName =>
-      useSmartCore && smartCoreAvailable ? 'mihomo-smart' : AppIdentity.coreExecutableName;
+      useSmartCore && smartCoreAvailable
+          ? 'mihomo-smart'
+          : AppIdentity.coreExecutableName;
 
   Future<void> loadCorePreference() async {
     final prefs = await preferences.sharedPreferencesCompleter.future;
