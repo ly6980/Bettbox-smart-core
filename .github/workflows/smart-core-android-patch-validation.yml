@@ -92,6 +92,7 @@ jobs:
           export CC="${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang"
           export CFLAGS="-O3"
           go mod edit -replace=github.com/metacubex/mihomo=./.smart-mihomo-validation
+          go mod tidy
           go build -trimpath -ldflags="-w -s -extldflags=-Wl,-z,max-page-size=16384" -tags=with_gvisor -buildmode=c-shared -o /tmp/libmeta-smart.so .
 
       - name: Verify ARM64 shared library and bridge symbols
