@@ -58,7 +58,12 @@ jobs:
         run: |
           set -euo pipefail
           NDK_VERSION="28.2.13676358"
+          # sdkmanager can exit before consuming yes's pipe; don't let pipefail
+          # treat that expected SIGPIPE from yes as an installation failure.
+          set +o pipefail
           yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --install "ndk;${NDK_VERSION}" >/dev/null
+          set -o pipefail
+          test -d "${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}"
           echo "ANDROID_NDK=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
 
       - name: Configure Cargo for Android
