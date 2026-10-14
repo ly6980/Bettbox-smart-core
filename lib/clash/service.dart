@@ -204,7 +204,7 @@ class ClashService extends ClashHandlerInterface {
             unawaited(
               helperClient
                   .setProcessPriority(
-                    '${AppIdentity.coreExecutableName}.exe',
+                    '${appPath.coreExecutableName}.exe',
                     true,
                   )
                   .catchError((e) {
@@ -226,7 +226,7 @@ class ClashService extends ClashHandlerInterface {
         await Process.run('taskkill', [
           '/F',
           '/IM',
-          '${AppIdentity.coreExecutableName}.exe',
+          '${appPath.coreExecutableName}.exe',
         ]);
       } catch (_) {}
     }
@@ -248,7 +248,7 @@ class ClashService extends ClashHandlerInterface {
         globalState.config.appSetting.enableHighPriority) {
       unawaited(
         helperClient
-            .setProcessPriority('${AppIdentity.coreExecutableName}.exe', true)
+            .setProcessPriority('${appPath.coreExecutableName}.exe', true)
             .catchError((e) {
               commonPrint.warn('Failed to set core process priority: $e');
               return false;
