@@ -10,10 +10,10 @@ Clash Party's `smart_core` branch downloads prebuilt Smart binaries from the `Pr
 
 Release metadata and asset names were checked on 2026-10-14:
 - Release: https://github.com/vernesong/mihomo/releases/tag/Prerelease-Alpha
-- Windows x64 assets include `mihomo-windows-amd64-v3-alpha-smart-<commit>.zip` and `mihomo-windows-amd64-v1-alpha-smart-<commit>.zip`.
+- Windows x64 assets include `mihomo-windows-amd64-v3-alpha-smart-<commit>.zip` and `mihomo-windows-amd64-compatible-alpha-smart-<commit>.zip`; v1 variants also exist but are not selected by Bettbox's current compatible build.
 - Windows ARM64 assets use `mihomo-windows-arm64-alpha-smart-<commit>.zip`.
-- Assets are rolling prerelease builds; do not hardcode the current short commit suffix or guess a URL. Resolve the current version/asset from release metadata or the release's `version.txt`, verify the asset exists, and verify its SHA-256 using the published checksum file before packaging.
-- Bettbox's Go build uses `GOAMD64=v3` by default and `GOAMD64=v1` for its compatible build, so Smart asset selection must match the same CPU baseline.
+- Assets are rolling prerelease builds; do not hardcode the current short commit suffix or guess a URL. The Windows build workflow resolves the current release metadata, selects the matching asset, and verifies the archive SHA-256 against `checksums.txt` before extracting it.
+- Bettbox's Windows x64 build selects the v3 asset by default and the `compatible` asset for its compatibility build; ARM64 uses the ARM64 asset.
 
 Clash Party references:
 - https://github.com/mihomo-party-org/clash-party/blob/smart_core/scripts/prepare.mjs
@@ -39,6 +39,18 @@ Clash Party references:
 6. Do not add Smart-specific config rewriting in the first implementation. First verify that an existing profile starts and validates under Smart Core. If Smart-only group settings are needed, add a separate opt-in override that is active only when Smart is selected and can be cleanly removed.
 7. Add an automation workflow that checks upstream versions, prepares the integration patch, runs format/code-generation/build checks, and stops on patch conflicts or checksum/build failures. Do not auto-publish a broken or unverified artifact.
 8. Only after Windows passes startup, profile validation, stop/restart, helper-service, and installer/portable checks should Linux/macOS be considered. Android needs a separate design because Bettbox loads a C shared library there.
+
+## Implementation status (2026-10-14)
+
+The first Windows integration changes are committed on `mihomo-smart`:
+
+- `.github/workflows/build.yaml` dynamically resolves the Smart Core release, verifies the selected ZIP against `checksums.txt`, extracts the executable to `libclash/windows/mihomo-smart.exe`, and passes its exact SHA-256 to the helper build.
+- `services/helper/src/ops.rs` keeps the original `TOKEN` health-check hash and allows additional core hashes only through an explicit comma-separated allowlist. Hash validation remains enabled.
+- `setup.dart` supports the optional `--allowed-core-hashes` build argument.
+- Windows packaging conditionally includes the sidecar; installer shutdown handling includes `mihomo-smart.exe`.
+- The Windows settings page has an opt-in Smart Core switch, persisted separately from the existing application config. BettboxCore remains the default.
+
+This is source-level implementation only. A Windows CI build and runtime checks (helper startup, profile validation, stop/restart, installer and portable packaging) have not yet been run. Treat the integration as unverified until those checks pass.
 
 ## Non-goals and safety rules
 
