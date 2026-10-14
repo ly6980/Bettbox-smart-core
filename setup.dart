@@ -789,17 +789,6 @@ class BuildCommand extends Command {
       }
     }
 
-    final corePaths = await Build.buildCore(
-      target: target,
-      arch: arch,
-      mode: mode,
-      compatible: compatible,
-    );
-
-    if (actualOut == 'core-only') {
-      return;
-    }
-
     if (actualOut == 'helper') {
       if (target != Target.windows) {
         throw '--out helper is only supported for windows';
@@ -812,6 +801,17 @@ class BuildCommand extends Command {
         coreHash,
         allowedCoreHashes: allowedCoreHashes,
       );
+      return;
+    }
+
+    final corePaths = await Build.buildCore(
+      target: target,
+      arch: arch,
+      mode: mode,
+      compatible: compatible,
+    );
+
+    if (actualOut == 'core-only') {
       return;
     }
 
