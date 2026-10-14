@@ -14,6 +14,19 @@ on:
       - 'windows/**'
       - 'pubspec.yaml'
       - 'pubspec.lock'
+  pull_request:
+    branches:
+      - mihomo-smart
+    paths:
+      - '.github/workflows/smart-core-windows-check.yml'
+      - '.github/workflows/build.yaml'
+      - 'core/**'
+      - 'lib/**'
+      - 'services/helper/**'
+      - 'setup.dart'
+      - 'windows/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
   workflow_dispatch:
 
 permissions:
@@ -27,7 +40,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: mihomo-smart
           submodules: recursive
           fetch-depth: 1
 
