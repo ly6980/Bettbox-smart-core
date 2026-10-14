@@ -254,10 +254,18 @@ class Build {
     return corePaths;
   }
 
-  static Future<void> buildHelper(Target target, String token) async {
+  static Future<void> buildHelper(
+    Target target,
+    String token, {
+    String allowedCoreHashes = '',
+  }) async {
+    final environment = <String, String>{'TOKEN': token};
+    if (allowedCoreHashes.trim().isNotEmpty) {
+      environment['ALLOWED_TOKENS'] = allowedCoreHashes;
+    }
     await exec(
       ['cargo', 'build', '--release', '--features', 'windows-service'],
-      environment: {'TOKEN': token},
+      environment: environment,
       name: 'build helper',
       workingDirectory: _servicesDir,
     );
@@ -507,7 +515,12 @@ class BuildCommand extends Command {
     argParser.addOption(
       'core-hash',
       help:
-          'SHA256 hash of the (signed) core binary, used when --out=helper to embed the correct TOKEN',
+          'SHA256 hash of the (signed) default core, used as the helper health-check TOKEN',
+    );
+    argParser.addOption(
+      'allowed-core-hashes',
+      help:
+          'Optional comma-separated SHA256 hashes for additional allowed core binaries',
     );
     argParser.addOption(
       'env',
@@ -724,6 +737,7 @@ class BuildCommand extends Command {
       ensure: argResults?['ensure'] ?? false,
       compatible: argResults?['compatible'] ?? false,
       coreHash: argResults?['core-hash'] as String?,
+      allowedCoreHashes: argResults?['allowed-core-hashes'] as String? ?? '',
     );
   }
 
@@ -735,6 +749,7 @@ class BuildCommand extends Command {
     bool ensure = false,
     bool compatible = false,
     String? coreHash,
+    String allowedCoreHashes = '',
   }) async {
     if (compatible && target != Target.windows && target != Target.linux) {
       throw '--compatible is only supported for windows and linux';
@@ -792,7 +807,11 @@ class BuildCommand extends Command {
       if (coreHash == null || coreHash.isEmpty) {
         throw '--core-hash is required when --out=helper';
       }
-      await Build.buildHelper(target, coreHash);
+      await Build.buildHelper(
+        target,
+        coreHash,
+        allowedCoreHashes: allowedCoreHashes,
+      );
       return;
     }
 
@@ -937,6 +956,10 @@ class AutoBuildCommand extends Command {
       help: 'SHA256 hash of the core binary when --out=helper',
     );
     argParser.addOption(
+      'allowed-core-hashes',
+      help: 'Optional comma-separated SHA256 hashes for additional core binaries',
+    );
+    argParser.addOption(
       'env',
       valueHelp: ['pre', 'stable'].join(','),
       help: 'Build env',
@@ -1056,6 +1079,7 @@ class AutoBuildCommand extends Command {
       ensure: argResults?['ensure'] ?? false,
       compatible: argResults?['compatible'] ?? false,
       coreHash: argResults?['core-hash'] as String?,
+      allowedCoreHashes: argResults?['allowed-core-hashes'] as String? ?? '',
     );
   }
 }
