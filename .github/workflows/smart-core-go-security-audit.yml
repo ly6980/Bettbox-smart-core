@@ -1,0 +1,65 @@
+name: Smart Core Go Dependency Security Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - mihomo-smart
+    paths:
+      - '.github/workflows/smart-core-go-security-audit.yml'
+      - 'core/go.mod'
+      - 'core/go.sum'
+      - 'core/Clash.Meta/go.mod'
+      - 'core/Clash.Meta/go.sum'
+      - 'core/**.go'
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    name: Go dependency and vulnerability scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout experimental branch
+        uses: actions/checkout@v6
+        with:
+          ref: mihomo-smart
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache-dependency-path: core/go.sum
+
+      - name: Record dependency graph
+        working-directory: core
+        run: |
+          set -euo pipefail
+          go list -m -json all > "$RUNNER_TEMP/go-modules.json"
+          go version
+          go env GOOS GOARCH CGO_ENABLED
+          echo "Dependency graph generated from commit $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Scan core packages
+        working-directory: core
+        env:
+          PATH: ${{ env.PATH }}:${{ github.workspace }}/go/bin
+        run: |
+          set -euo pipefail
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
+      - name: Upload dependency inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smart-core-go-dependency-inventory-${{ github.sha }}
+          path: ${{ runner.temp }}/go-modules.json
+          if-no-files-found: warn
+          retention-days: 30
