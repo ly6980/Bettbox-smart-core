@@ -1,0 +1,70 @@
+name: Smart Core Focused Regression Checks
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [mihomo-smart]
+    paths:
+      - '.github/workflows/smart-core-focused-regression.yml'
+      - 'lib/clash/service.dart'
+      - 'lib/common/path.dart'
+      - 'test/clash/**'
+      - 'plugins/code_forge/rust/**'
+      - 'test/plugins/code_forge/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smart-core-focused-regression-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  focused-dart:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout experimental branch
+        uses: actions/checkout@v6
+        with:
+          ref: mihomo-smart
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.7'
+          cache: true
+          cache-key: smart-core-focused-${{ hashFiles('**/pubspec.lock') }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Resolve dependencies and generated sources
+        run: |
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Build editor native library required by editor tests
+        working-directory: plugins/code_forge/rust
+        run: cargo build --release
+
+      - name: Run focused core transport tests
+        run: flutter test --reporter expanded test/clash/interface_test.dart
+
+      - name: Run editor native integration tests
+        run: flutter test --reporter expanded test/widgets/editor_magnifier_test.dart
+
+      - name: Summarize scope
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "Commit: $GITHUB_SHA"
+            echo "Scope: focused Clash transport unit tests and editor tests with the required Rust native library built."
+            echo "This does not claim Windows process fallback or Android VPN/TUN runtime validation."
+          } >> "$GITHUB_STEP_SUMMARY"
