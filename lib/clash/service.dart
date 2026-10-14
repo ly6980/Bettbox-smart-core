@@ -342,18 +342,32 @@ class ClashService extends ClashHandlerInterface {
     String arg,
     Map<String, String> environment,
   ) async {
-    if (system.isLinux && appPath.isAppImage) {
-      await appPath.ensureAppImageCoreSynced();
+    try {
+      if (system.isLinux && appPath.isAppImage) {
+        await appPath.ensureAppImageCoreSynced();
+      }
+      process = await Process.start(appPath.corePath, [
+        arg,
+      ], environment: environment);
+      process?.stdout.listen((_) {});
+      process?.stderr.listen((e) {
+        final error = utf8.decode(e);
+        if (error.isNotEmpty) commonPrint.error(error);
+      });
+      return _waitForCoreReady(process);
+    } on ProcessException catch (e) {
+      process = null;
+      commonPrint.error('Failed to start core process: $e');
+      return false;
+    } on FileSystemException catch (e) {
+      process = null;
+      commonPrint.error('Failed to prepare core executable: $e');
+      return false;
+    } catch (e, stack) {
+      process = null;
+      commonPrint.error('Unexpected error while starting core: $e\n$stack');
+      return false;
     }
-    process = await Process.start(appPath.corePath, [
-      arg,
-    ], environment: environment);
-    process?.stdout.listen((_) {});
-    process?.stderr.listen((e) {
-      final error = utf8.decode(e);
-      if (error.isNotEmpty) commonPrint.error(error);
-    });
-    return _waitForCoreReady(process);
   }
 
   Future<bool> _waitForCoreReady([Process? targetProcess]) async {
