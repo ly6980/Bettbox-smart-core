@@ -1,3 +1,4 @@
+# Static architecture audit; original main branch remains untouched.
 name: Smart Core Android Dual-Core Architecture Audit
 
 on:
