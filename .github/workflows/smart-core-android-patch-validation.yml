@@ -1,0 +1,111 @@
+name: Smart Core Android Patch Validation
+
+on:
+  push:
+    branches:
+      - mihomo-smart
+    paths:
+      - '.github/workflows/smart-core-android-patch-validation.yml'
+      - 'core/**'
+      - 'android/core/**'
+  pull_request:
+    branches:
+      - mihomo-smart
+    paths:
+      - '.github/workflows/smart-core-android-patch-validation.yml'
+      - 'core/**'
+      - 'android/core/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch-and-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout with Git objects for three-way patching
+        uses: actions/checkout@v6
+        with:
+          ref: mihomo-smart
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache: false
+
+      - name: Setup Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          NDK_VERSION="28.2.13676358"
+          set +o pipefail
+          yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --install "ndk;${NDK_VERSION}" >/dev/null
+          set -o pipefail
+          test -d "${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}"
+          echo "ANDROID_NDK=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Fetch pinned Kevin Smart patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/KevinChen222/Bettbox/feat/smart-core/core/smart.patch \
+            --output /tmp/smart.patch
+          test -s /tmp/smart.patch
+          echo "Patch bytes: $(wc -c < /tmp/smart.patch)"
+          echo "Changed kernel files: $(grep -c '^diff --git ' /tmp/smart.patch)"
+
+      - name: Apply patch to disposable copy only
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_dir="$GITHUB_WORKSPACE/core/Clash.Meta"
+          smart_dir="$GITHUB_WORKSPACE/core/.smart-mihomo-validation"
+          test ! -e "$smart_dir"
+          cp -a "$source_dir" "$smart_dir"
+          git -C "$smart_dir" init --quiet
+          objects="$(git -C "$GITHUB_WORKSPACE" rev-parse --git-path objects)"
+          objects_path="$(realpath "$GITHUB_WORKSPACE/$objects")"
+          mkdir -p "$smart_dir/.git/objects/info"
+          printf '%s\n' "$objects_path" > "$smart_dir/.git/objects/info/alternates"
+          git -C "$smart_dir" add --all
+          git -C "$smart_dir" -c user.name='Bettbox validation' -c user.email='validation@localhost' commit --quiet -m 'Original kernel validation baseline'
+          git -C "$smart_dir" apply --3way --whitespace=nowarn /tmp/smart.patch
+          git -C "$smart_dir" diff --check
+          echo "PATCH_APPLIED=1" >> "$GITHUB_ENV"
+          echo "Patch applied cleanly to isolated copy; original core/Clash.Meta remains unchanged."
+          git -C "$smart_dir" diff --stat
+
+      - name: Build Smart C-shared bridge for Android ARM64
+        shell: bash
+        working-directory: core
+        run: |
+          set -euo pipefail
+          test "${PATCH_APPLIED:-0}" = "1"
+          export GOOS=android
+          export GOARCH=arm64
+          export CGO_ENABLED=1
+          export CC="${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang"
+          export CFLAGS="-O3"
+          go mod edit -replace=github.com/metacubex/mihomo=./.smart-mihomo-validation
+          go build -trimpath -ldflags="-w -s -extldflags=-Wl,-z,max-page-size=16384" -tags=with_gvisor -buildmode=c-shared -o /tmp/libmeta-smart.so .
+
+      - name: Verify ARM64 shared library and bridge symbols
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/libmeta-smart.so
+          test -s /tmp/libmeta-smart.h
+          file /tmp/libmeta-smart.so
+          readelf -h /tmp/libmeta-smart.so | grep -E 'Machine:.*AArch64'
+          for symbol in initNativeApiBridge attachMessagePort invokeAction getTraffic getTotalTraffic freeCString getConfig startListener stopListener suspend startTUN stopTun registerCallbacks; do
+            readelf -Ws /tmp/libmeta-smart.so | grep -q "[[:space:]]${symbol}$" || {
+              echo "Missing required Bettbox bridge symbol: ${symbol}"
+              exit 1
+            }
+          done
+          echo "Isolated Smart Core Android ARM64 bridge validation passed."
