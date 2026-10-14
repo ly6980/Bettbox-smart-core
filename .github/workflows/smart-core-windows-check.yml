@@ -134,3 +134,5 @@ jobs:
             if (-not (Test-Path $path -PathType Leaf)) { throw "Expected build output is missing: $path" }
             Write-Host "$file : $((Get-FileHash $path -Algorithm SHA256).Hash.ToLower())"
           }
+
+# CI trigger probe for the Windows Smart Core build; do not merge this temporary branch.
