@@ -89,3 +89,5 @@ jobs:
             exit 1
           fi
           echo "Audit ran on $GITHUB_REF_NAME; no source files were changed."
+
+# Branch-scoped validation refresh; no application source changed.
