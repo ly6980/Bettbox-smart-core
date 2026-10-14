@@ -1,0 +1,90 @@
+name: Smart Core Android Dual-Core Architecture Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - mihomo-smart
+    paths:
+      - '.github/workflows/smart-core-android-dual-core-audit.yml'
+      - 'android/core/**'
+      - 'lib/clash/**'
+      - 'lib/models/core.dart'
+      - 'setup.dart'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit Android core loading boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout mihomo-smart
+        uses: actions/checkout@v4
+        with:
+          ref: mihomo-smart
+
+      - name: Inspect Android JNI and native core loading
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/smart-core-android-dual-core-audit.md"
+          {
+            echo "# Smart Core Android Dual-Core Architecture Audit"
+            echo
+            echo "- Branch: mihomo-smart"
+            echo "- Scope: static inspection only; no application source is modified."
+            echo "- Goal: preserve the original core as default and add Smart as an optional core with safe fallback."
+            echo
+            echo "## Android native bridge"
+            echo
+            for file in android/core/src/main/cpp/CMakeLists.txt android/core/src/main/cpp/core.cpp android/core/src/main/java/com/appshub/bettbox/core/Core.kt; do
+              if [ -f "$file" ]; then
+                echo "### $file"
+                echo '```'
+                grep -nE 'libmeta|add_library|target_link_libraries|System.loadLibrary|external fun|startTun|stopTun|JNI_OnLoad|LIBCLASH|registerCallbacks|startTUN' "$file" || true
+                echo '```'
+                echo
+              else
+                echo "### Missing expected path: $file"
+                echo
+              fi
+            done
+            echo "## Flutter core binding and selection"
+            echo
+            for file in lib/clash/core.dart lib/clash/generated/clash_ffi.dart lib/models/core.dart setup.dart; do
+              if [ -f "$file" ]; then
+                echo "### $file"
+                echo '```'
+                grep -nEi 'DynamicLibrary|loadLibrary|lookupFunction|corePath|libmeta|coreType|mihomo|ffi|process|executable|shared' "$file" | head -n 100 || true
+                echo '```'
+                echo
+              fi
+            done
+            echo "## Packaging and native library references"
+            echo
+            grep -RInE 'libmeta.so|libcore.so|System.loadLibrary|DynamicLibrary|corePath|mihomoCorePath' android lib windows setup.dart --include='*.kt' --include='*.cpp' --include='*.h' --include='*.dart' --include='*.cmake' --include='CMakeLists.txt' 2>/dev/null | head -n 180 || true
+            echo
+            echo "## Design constraints for the next implementation step"
+            echo
+            echo "1. Do not overwrite or rename the original core binary."
+            echo "2. Keep the original core as the default; Smart must be an explicit opt-in."
+            echo "3. Avoid loading two cores into the same process if their exported Go symbols or global state can collide; verify symbol isolation before choosing a same-process design."
+            echo "4. Keep JNI/TUN callbacks compatible and ensure stop/cleanup completes before changing cores."
+            echo "5. Validate the selected core before start; if Smart initialization fails, tear it down and retry the original core."
+            echo "6. Add runtime tests for both core choices, failed Smart startup, repeated switching, and VPN/TUN cleanup."
+            echo "7. This audit is diagnostic only. It does not implement or enable core switching."
+          } > "$report"
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          cat "$report"
+
+      - name: Check original main branch remains untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            echo "Unexpected main-branch execution; this workflow is intended for mihomo-smart only." >&2
+            exit 1
+          fi
+          echo "Audit ran on $GITHUB_REF_NAME; no source files were changed."
