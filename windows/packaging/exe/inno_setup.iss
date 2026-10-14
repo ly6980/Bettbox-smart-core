@@ -19,7 +19,7 @@ PrivilegesRequired={{PRIVILEGES_REQUIRED}}
 ArchitecturesAllowed={{ARCH}}
 ArchitecturesInstallIn64BitMode={{ARCH}}
 CloseApplications=yes
-CloseApplicationsFilter={{EXECUTABLE_NAME}},{{CORE_EXECUTABLE_NAME}},{{HELPER_EXECUTABLE_NAME}}
+CloseApplicationsFilter={{EXECUTABLE_NAME}},{{CORE_EXECUTABLE_NAME}},mihomo-smart.exe,{{HELPER_EXECUTABLE_NAME}}
 SetupLogging=yes
 
 [Code]
@@ -65,7 +65,7 @@ begin
 
     { Wait up to 4 seconds for the main app and core to exit }
     WaitCount := 0;
-    while (WaitCount < 8) and (IsProcessRunning('{{EXECUTABLE_NAME}}') or IsProcessRunning('{{CORE_EXECUTABLE_NAME}}')) do
+    while (WaitCount < 8) and (IsProcessRunning('{{EXECUTABLE_NAME}}') or IsProcessRunning('{{CORE_EXECUTABLE_NAME}}') or IsProcessRunning('mihomo-smart.exe')) do
     begin
       Sleep(500);
       WaitCount := WaitCount + 1;
@@ -78,6 +78,9 @@ begin
 
   if IsProcessRunning('{{CORE_EXECUTABLE_NAME}}') then
     Exec('taskkill', '/f /im {{CORE_EXECUTABLE_NAME}}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  if IsProcessRunning('mihomo-smart.exe') then
+    Exec('taskkill', '/f /im mihomo-smart.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
 procedure CleanWintunDevices;
