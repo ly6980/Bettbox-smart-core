@@ -124,6 +124,20 @@ jobs:
           $coreHash = (Get-FileHash 'libclash/windows/BettboxCore.exe' -Algorithm SHA256).Hash.ToLower()
           flutter build windows --release --verbose --dart-define=CORE_SHA256=$coreHash --dart-define=APP_ENV=pre
 
+      - name: Stage Smart Core beside Windows application
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = 'libclash/windows/mihomo-smart.exe'
+          $releaseDir = 'build/windows/x64/runner/Release'
+          if (-not (Test-Path $source -PathType Leaf)) { throw "Verified Smart Core source is missing: $source" }
+          New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+          Copy-Item $source (Join-Path $releaseDir 'mihomo-smart.exe') -Force
+          $sourceHash = (Get-FileHash $source -Algorithm SHA256).Hash.ToLower()
+          $stagedHash = (Get-FileHash (Join-Path $releaseDir 'mihomo-smart.exe') -Algorithm SHA256).Hash.ToLower()
+          if ($sourceHash -ne $stagedHash) { throw 'Staged Smart Core SHA-256 differs from verified source.' }
+          Write-Host "Staged mihomo-smart.exe (SHA-256 $stagedHash)"
+
       - name: Verify build outputs and packaged sidecar
         shell: pwsh
         run: |
