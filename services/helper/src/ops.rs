@@ -117,9 +117,28 @@ pub mod core {
             }
         };
 
-        if sha256 != env!("TOKEN") {
+        // TOKEN remains the primary core hash used by the helper health check.
+        // ALLOWED_TOKENS is an optional comma-separated allowlist for additional
+        // bundled cores. Keep the exact SHA-256 check enabled for every binary.
+        let primary_token = env!("TOKEN");
+        let extra_tokens = option_env!("ALLOWED_TOKENS").unwrap_or("");
+        let is_allowed = sha256 == primary_token
+            || extra_tokens
+                .split(',')
+                .map(str::trim)
+                .any(|token| !token.is_empty() && sha256 == token);
+
+        if !is_allowed {
             let _ = file.unlock();
-            let msg = format!("The SHA256 hash of the program requesting execution is: {}. The helper program only allows execution of applications with the SHA256 hash: {}.", sha256, env!("TOKEN"));
+            let allowed_tokens = if extra_tokens.is_empty() {
+                primary_token.to_string()
+            } else {
+                format!("{},{}", primary_token, extra_tokens)
+            };
+            let msg = format!(
+                "The SHA256 hash of the program requesting execution is: {}. The helper only allows these SHA256 hashes: {}.",
+                sha256, allowed_tokens
+            );
             log_message(msg.clone());
             return msg;
         }
