@@ -1,0 +1,171 @@
+name: Smart Core Android Build Check
+
+on:
+  push:
+    branches:
+      - mihomo-smart
+    paths:
+      - '.github/workflows/smart-core-android-check.yml'
+      - '.github/workflows/build.yaml'
+      - 'core/**'
+      - 'lib/**'
+      - 'android/**'
+      - 'setup.dart'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+  pull_request:
+    branches:
+      - mihomo-smart
+    paths:
+      - '.github/workflows/smart-core-android-check.yml'
+      - '.github/workflows/build.yaml'
+      - 'core/**'
+      - 'lib/**'
+      - 'android/**'
+      - 'setup.dart'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-arm64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Setup Rust for Android
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Setup Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          NDK_VERSION="28.2.13676358"
+          yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --install "ndk;${NDK_VERSION}" >/dev/null
+          echo "ANDROID_NDK=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Configure Cargo for Android
+        shell: bash
+        run: |
+          mkdir -p ~/.cargo
+          cat > ~/.cargo/config.toml <<EOF
+          [target.aarch64-linux-android]
+          linker = "${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang"
+          EOF
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache-dependency-path: core/go.sum
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.7'
+          cache: true
+          cache-key: smart-core-android-arm64-${{ hashFiles('**/pubspec.lock') }}
+
+      - name: Resolve Dart dependencies and generated code
+        run: |
+          flutter pub get
+          dart run build_runner build
+
+      - name: Build Android arm64 app with default core
+        run: dart setup.dart android --arch arm64 --out app
+
+      - name: Verify Smart Core Android arm64 binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import urllib.request
+
+          api = "https://api.github.com/repos/vernesong/mihomo/releases/tags/Prerelease-Alpha"
+          request = urllib.request.Request(api, headers={
+              "Accept": "application/vnd.github+json",
+              "User-Agent": "Bettbox-Smart-Core-Android-Build-Check",
+          })
+          with urllib.request.urlopen(request, timeout=30) as response:
+              release = json.load(response)
+
+          candidates = [
+              asset for asset in release.get("assets", [])
+              if asset["name"].startswith("mihomo-android-arm64-v8-alpha-smart-")
+              and asset["name"].endswith(".gz")
+          ]
+          checksum_assets = [
+              asset for asset in release.get("assets", [])
+              if asset["name"] == "checksums.txt"
+          ]
+          if len(candidates) != 1:
+              raise SystemExit(f"Expected exactly one Android arm64 Smart Core asset, found {len(candidates)}")
+          if len(checksum_assets) != 1:
+              raise SystemExit("checksums.txt missing; refusing unverified Smart Core binary")
+
+          asset = candidates[0]
+          def download(url):
+              req = urllib.request.Request(url, headers={"User-Agent": "Bettbox-Smart-Core-Android-Build-Check"})
+              with urllib.request.urlopen(req, timeout=120) as response:
+                  return response.read()
+
+          archive = download(asset["browser_download_url"])
+          checksum_text = download(checksum_assets[0]["browser_download_url"]).decode("utf-8", errors="strict")
+          matches = [
+              line for line in checksum_text.splitlines()
+              if asset["name"] in line and len(line.split()) >= 2
+          ]
+          if len(matches) != 1:
+              raise SystemExit(f"Expected one checksum entry for {asset['name']}, found {len(matches)}")
+          expected = matches[0].split()[0].lower()
+          actual = hashlib.sha256(archive).hexdigest()
+          if expected != actual:
+              raise SystemExit(f"Smart Core archive SHA-256 mismatch: expected {expected}, got {actual}")
+
+          pathlib.Path("smart-core-android-arm64.gz").write_bytes(archive)
+          print(f"Verified upstream asset: {asset['name']}")
+          print(f"SHA-256: {actual}")
+          PY
+
+          gzip -dc smart-core-android-arm64.gz > mihomo-smart-android-arm64
+          file mihomo-smart-android-arm64
+          readelf -h mihomo-smart-android-arm64 | grep -E 'Class:|Machine:'
+          readelf -h mihomo-smart-android-arm64 | grep -q 'AArch64' || {
+            echo "Smart Core binary is not AArch64; refusing to continue."
+            exit 1
+          }
+
+      - name: Verify Android build outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          find build -type f -name '*.apk' -print -quit | grep -q . || {
+            echo "Android APK output was not produced."
+            exit 1
+          }
+          find libclash/android/arm64-v8a -maxdepth 1 -type f -name 'libmeta.so' -print -quit | grep -q . || {
+            echo "Default Bettbox Android shared library is missing."
+            exit 1
+          }
+          echo "Default Android app and core outputs exist; Smart Core upstream executable checksum and architecture verified."
