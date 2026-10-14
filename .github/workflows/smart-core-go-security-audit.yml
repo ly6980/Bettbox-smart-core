@@ -53,13 +53,23 @@ jobs:
           PATH: ${{ env.PATH }}:${{ github.workspace }}/go/bin
         run: |
           set -euo pipefail
-          "$(go env GOPATH)/bin/govulncheck" ./...
+          set +e
+          "$(go env GOPATH)/bin/govulncheck" -json ./... > "$RUNNER_TEMP/govulncheck-report.json"
+          scan_status=$?
+          set -e
+          echo "govulncheck exit code: $scan_status" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$scan_status" -ne 0 ]; then
+            echo "Security findings were reported. See the JSON artifact for structured findings." >> "$GITHUB_STEP_SUMMARY"
+            exit "$scan_status"
+          fi
 
       - name: Upload dependency inventory
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: smart-core-go-dependency-inventory-${{ github.sha }}
-          path: ${{ runner.temp }}/go-modules.json
+          path: |
+            ${{ runner.temp }}/go-modules.json
+            ${{ runner.temp }}/govulncheck-report.json
           if-no-files-found: warn
           retention-days: 30
