@@ -59,3 +59,34 @@ This is source-level implementation only. A Windows CI build and runtime checks 
 - Do not overwrite or replace the normal core with Smart Core.
 - Do not remove the Windows helper's hash verification.
 - Do not claim completion based only on source edits or formatting; a real Windows build and runtime test are required.
+
+
+## Android ARM64 investigation (2026-10-14)
+
+Target scope is Android `arm64-v8a` only. Windows target is Windows 11 x64 only.
+
+### Confirmed architecture
+
+- `setup.dart` builds Android's default core as a Go C shared library (`-buildmode=c-shared`) named `libmeta.so`; the generated Dart FFI layer opens `DynamicLibrary.open('libmeta.so')`.
+- Android's `ClashLib` sends JSON actions through the existing service-engine/IPC path. The FFI surface includes many Bettbox-specific actions (configuration validation and setup, profile management, traffic, logs, providers, DNS, connections, Android VPN options, etc.), not just a generic Mihomo REST API.
+- Android TUN integration is tied to the existing native `libcore.so` JNI shim. Its `startTun(fd, callback)`, `stopTun()`, and suspend calls invoke exported functions from `libmeta.h`; the callback protects sockets and resolves process ownership.
+- The Smart Core artifact verified by CI is a standalone AArch64 executable, not a drop-in `libmeta.so`. Copying or renaming it into the JNI/FFI path is incompatible.
+- The standalone executable does expose normal Mihomo configuration/controller behavior, but that alone does not replace Bettbox's current IPC action protocol or the Android TUN file-descriptor/callback integration.
+
+### Design conclusion
+
+Do not implement an Android executable sidecar yet. A subprocess adapter would need to re-create or translate the current Bettbox action API and correctly integrate the Android VPN TUN descriptor, socket protection, process attribution, service lifecycle, and restart/cleanup. The current investigation has not established a safe way to pass the existing TUN FD and callbacks to this standalone executable. A REST controller alone is insufficient evidence of compatibility.
+
+The lowest-risk route to preserve current Android behavior is to investigate whether the Smart fork can be built as a C shared library with the exact Bettbox export/API surface and Android JNI hooks. This must be demonstrated first; the upstream standalone executable cannot be assumed to export those symbols. If that is not feasible, a larger adapter design will need a separate technical spike and device-level validation before any UI toggle or production integration is added.
+
+### Build verification
+
+- Android ARM64 CI: https://github.com/ly6980/Bettbox-smart-core/actions/runs/38569348565 — passed APK build/output checks and verified the upstream Smart executable's checksum and AArch64 ELF architecture. This is artifact/build validation only, not runtime integration.
+- Windows CI: https://github.com/ly6980/Bettbox-smart-core/actions/runs/38566898021 — passed build and sidecar packaging checks. This does not prove runtime behavior on Windows 11.
+
+### Next research steps
+
+1. Inspect the Smart fork's Go exports/build tags and compare them with Bettbox's `libmeta.h` and generated FFI symbols.
+2. Check whether the fork can produce an Android ARM64 `c-shared` artifact while retaining the Smart-specific functionality.
+3. If feasible, build a separate proof-of-concept artifact and compare its exported symbols/API before wiring it into Bettbox.
+4. Keep the normal Android core selected by default and do not add a Smart Core toggle until the proof-of-concept passes build and device-level TUN/lifecycle checks.
