@@ -138,6 +138,7 @@ class GlobalState {
 
   Future<void> initApp(int version) async {
     isExiting = false;
+    await appPath.loadCorePreference();
     if (system.isLinux && appPath.isAppImage) {
       await appPath.ensureAppImageCoreSynced();
     }
