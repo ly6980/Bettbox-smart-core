@@ -46,9 +46,9 @@ The first Windows integration changes are committed on `mihomo-smart`:
 
 - `.github/workflows/build.yaml` dynamically resolves the Smart Core release, verifies the selected ZIP against `checksums.txt`, extracts the executable to `libclash/windows/mihomo-smart.exe`, and passes its exact SHA-256 to the helper build.
 - `services/helper/src/ops.rs` keeps the original `TOKEN` health-check hash and allows additional core hashes only through an explicit comma-separated allowlist. Hash validation remains enabled.
-- `setup.dart` supports the optional `--allowed-core-hashes` build argument.
+- `setup.dart` supports the optional `--allowed-core-hashes` build argument. Helper-only builds no longer rebuild/overwrite the already signed core before embedding its hash.
 - Windows packaging conditionally includes the sidecar; installer shutdown handling includes `mihomo-smart.exe`.
-- The Windows settings page has an opt-in Smart Core switch, persisted separately from the existing application config. BettboxCore remains the default.
+- The Windows settings page has an opt-in Smart Core switch, persisted separately from the existing application config. BettboxCore remains the default. If the helper cannot start Smart Core, the app refuses to fall back to direct, unprivileged launch.
 
 This is source-level implementation only. A Windows CI build and runtime checks (helper startup, profile validation, stop/restart, installer and portable packaging) have not yet been run. Treat the integration as unverified until those checks pass.
 
