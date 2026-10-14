@@ -108,6 +108,12 @@ class AppPath {
           ? 'mihomo-smart'
           : AppIdentity.coreExecutableName;
 
+  Future<void> disableSmartCorePreference() async {
+    useSmartCore = false;
+    final prefs = await preferences.sharedPreferencesCompleter.future;
+    await prefs?.setBool('useSmartCore', false);
+  }
+
   Future<void> loadCorePreference() async {
     final prefs = await preferences.sharedPreferencesCompleter.future;
     useSmartCore = system.isWindows &&
