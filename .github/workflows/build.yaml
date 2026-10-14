@@ -285,7 +285,7 @@ jobs:
           if ($env:SMART_ARCH -eq 'arm64') {
             $assetPattern = 'mihomo-windows-arm64-alpha-smart-*.zip'
           } elseif ($env:SMART_COMPATIBLE -eq 'true') {
-            $assetPattern = 'mihomo-windows-amd64-compatible-alpha-smart-*.zip'
+            $assetPattern = 'mihomo-windows-amd64-v1-alpha-smart-*.zip'
           } else {
             $assetPattern = 'mihomo-windows-amd64-v3-alpha-smart-*.zip'
           }
