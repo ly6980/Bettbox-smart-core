@@ -110,3 +110,5 @@ jobs:
             }
           done
           echo "Isolated Smart Core Android ARM64 bridge validation passed."
+
+# Branch-scoped validation refresh; no application source changed.
