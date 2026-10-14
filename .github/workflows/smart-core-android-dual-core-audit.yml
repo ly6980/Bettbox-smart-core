@@ -8,7 +8,7 @@ on:
       - mihomo-smart
     paths:
       - '.github/workflows/smart-core-android-dual-core-audit.yml'
-      - 'android/core/**'
+      - 'android/**'
       - 'lib/clash/**'
       - 'lib/models/core.dart'
       - 'setup.dart'
@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   audit:
-    name: Audit Android core loading boundaries
+    name: Determine safe Android dual-core boundary
     runs-on: ubuntu-latest
     steps:
       - name: Checkout mihomo-smart
@@ -26,7 +26,7 @@ jobs:
         with:
           ref: mihomo-smart
 
-      - name: Inspect Android JNI and native core loading
+      - name: Inspect JNI, FFI, services, and process boundaries
         shell: bash
         run: |
           set -euo pipefail
@@ -35,59 +35,79 @@ jobs:
             echo "# Smart Core Android Dual-Core Architecture Audit"
             echo
             echo "- Branch: mihomo-smart"
-            echo "- Scope: static inspection only; no application source is modified."
-            echo "- Goal: preserve the original core as default and add Smart as an optional core with safe fallback."
+            echo "- Scope: diagnostic only; no application source is modified."
+            echo "- Goal: original core remains default; Smart is opt-in and failure falls back safely."
             echo
-            echo "## Android native bridge"
+            echo "## JNI and native library loading"
             echo
             for file in android/core/src/main/cpp/CMakeLists.txt android/core/src/main/cpp/core.cpp android/core/src/main/java/com/appshub/bettbox/core/Core.kt; do
               if [ -f "$file" ]; then
                 echo "### $file"
-                echo '```'
+                echo '---'
                 grep -nE 'libmeta|add_library|target_link_libraries|System.loadLibrary|external fun|startTun|stopTun|JNI_OnLoad|LIBCLASH|registerCallbacks|startTUN' "$file" || true
-                echo '```'
+                echo '---'
                 echo
               else
                 echo "### Missing expected path: $file"
                 echo
               fi
             done
-            echo "## Flutter core binding and selection"
+
+            echo "## Android manifests, services, and process declarations"
             echo
-            for file in lib/clash/core.dart lib/clash/generated/clash_ffi.dart lib/models/core.dart setup.dart; do
-              if [ -f "$file" ]; then
+            find android \( -name AndroidManifest.xml -o -name '*.kt' -o -name '*.java' \) -type f | sort | while IFS= read -r file; do
+              matches="$(grep -nEi 'android:process|VpnService|Service\(|:remote|startForeground|Binder|Messenger|LocalSocket|UnixDomainSocket|ProcessBuilder|Runtime\.getRuntime|System\.loadLibrary' "$file" 2>/dev/null || true)"
+              if [ -n "$matches" ]; then
                 echo "### $file"
-                echo '```'
-                grep -nEi 'DynamicLibrary|loadLibrary|lookupFunction|corePath|libmeta|coreType|mihomo|ffi|process|executable|shared' "$file" | head -n 100 || true
-                echo '```'
+                echo '---'
+                printf '%s\n' "$matches" | head -n 100
+                echo '---'
                 echo
               fi
             done
-            echo "## Packaging and native library references"
+
+            echo "## Flutter FFI and core selection"
             echo
-            grep -RInE 'libmeta.so|libcore.so|System.loadLibrary|DynamicLibrary|corePath|mihomoCorePath' android lib windows setup.dart --include='*.kt' --include='*.cpp' --include='*.h' --include='*.dart' --include='*.cmake' --include='CMakeLists.txt' 2>/dev/null | head -n 180 || true
+            for file in lib/clash/lib.dart lib/clash/service.dart lib/clash/core.dart lib/clash/generated/clash_ffi.dart lib/models/core.dart setup.dart; do
+              if [ -f "$file" ]; then
+                echo "### $file"
+                echo '---'
+                grep -nEi 'DynamicLibrary|loadLibrary|lookupFunction|corePath|libmeta|coreType|mihomo|ffi|process|executable|shared|fallback|smart' "$file" | head -n 120 || true
+                echo '---'
+                echo
+              fi
+            done
+
+            echo "## References to core binaries and IPC"
             echo
-            echo "## Design constraints for the next implementation step"
+            grep -RInE 'libmeta\.so|libcore\.so|System\.loadLibrary|DynamicLibrary|LocalSocket|UnixDomainSocket|ProcessBuilder|android:process|corePath|mihomoCorePath' android lib setup.dart --include='*.kt' --include='*.java' --include='*.cpp' --include='*.h' --include='*.dart' --include='*.xml' --include='*.cmake' --include='CMakeLists.txt' 2>/dev/null | head -n 240 || true
+
             echo
-            echo "1. Do not overwrite or rename the original core binary."
-            echo "2. Keep the original core as the default; Smart must be an explicit opt-in."
-            echo "3. Avoid loading two cores into the same process if their exported Go symbols or global state can collide; verify symbol isolation before choosing a same-process design."
-            echo "4. Keep JNI/TUN callbacks compatible and ensure stop/cleanup completes before changing cores."
-            echo "5. Validate the selected core before start; if Smart initialization fails, tear it down and retry the original core."
-            echo "6. Add runtime tests for both core choices, failed Smart startup, repeated switching, and VPN/TUN cleanup."
-            echo "7. This audit is diagnostic only. It does not implement or enable core switching."
+            echo "## Architecture decision gates"
+            echo
+            echo "- Same-process dual Go C-shared libraries: NOT APPROVED unless symbol and Go-runtime isolation is demonstrated on Android/Bionic."
+            echo "- Separate Android process: preferred candidate if the app can route commands, traffic, configuration, and lifecycle over a defined IPC boundary."
+            echo "- A renamed standalone executable is not a shared library and cannot satisfy the current FFI contract."
+            echo "- Do not replace the original libmeta.so or load two cores into one process by merely changing a filename."
+            echo "- Before implementation, identify the actual Android service process that owns the Dart FFI bridge and the VPN/TUN descriptor lifecycle."
+            echo "- Smart must be explicit opt-in, with startup failure/timeout causing cleanup and fallback to the original core."
+            echo "- Validate ARM64 packaging, callbacks, traffic/config APIs, stop/restart, VPN/TUN cleanup, and fallback at runtime before claiming integration success."
+            echo
+            echo "## Current workflow conclusion"
+            echo
+            echo "This report is evidence for choosing the isolation design; it does not claim that Android dual-core switching is implemented or runtime-tested."
           } > "$report"
           cat "$report" >> "$GITHUB_STEP_SUMMARY"
           cat "$report"
 
-      - name: Check original main branch remains untouched
+      - name: Enforce branch scope
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$GITHUB_REF_NAME" = "main" ]; then
-            echo "Unexpected main-branch execution; this workflow is intended for mihomo-smart only." >&2
+          if [ "$GITHUB_REF_NAME" != "mihomo-smart" ]; then
+            echo "This audit must run only on mihomo-smart; got $GITHUB_REF_NAME." >&2
             exit 1
           fi
-          echo "Audit ran on $GITHUB_REF_NAME; no source files were changed."
+          echo "Branch scope verified: mihomo-smart."
 
-# Branch-scoped validation refresh; no application source changed.
+# Diagnostic only; do not modify application source or trigger release builds.
